@@ -121,3 +121,101 @@ new = ('  <string name="zetaria_welcome_title">Bienvenido al Reino Soberano de Z
 x = x.replace("</resources>", new + "</resources>")
 base.write_text(x, encoding="utf-8")
 print("   bienvenida cósmica instalada")
+
+
+# ---------- PNG sin pérdida en el chat + mejor compresión de fotos de perfil ----------
+utils = kt / "views/helpers/Utils.kt"
+patch(utils, """fun saveImage(uri: URI): CryptoFile? {
+  val bitmap = getBitmapFromUri(uri) ?: return null
+  return saveImage(bitmap)
+}""", """// Zetaria: los PNG se envían tal cual (sin recomprimir ni reducir), hasta 30 MB
+const val ZETARIA_MAX_ORIGINAL_PNG: Long = 31_457_280
+
+private fun isPngFile(uri: URI): Boolean = try {
+  uri.inputStream()?.use { s ->
+    val h = ByteArray(8)
+    s.read(h) == 8 && h[0] == 0x89.toByte() && h[1] == 0x50.toByte() && h[2] == 0x4E.toByte() && h[3] == 0x47.toByte()
+  } ?: false
+} catch (e: Exception) {
+  false
+}
+
+fun saveOriginalPng(uri: URI): CryptoFile? {
+  return try {
+    val size = getFileSize(uri)
+    if (size == null || size > ZETARIA_MAX_ORIGINAL_PNG || !isPngFile(uri)) return null
+    val encrypted = chatController.appPrefs.privacyEncryptLocalFiles.get()
+    val destFileName = generateNewFileName("IMG", "png", File(getAppFilePath("")))
+    val destFile = File(getAppFilePath(destFileName))
+    if (encrypted) {
+      val bytes = uri.inputStream()?.use { it.readBytes() } ?: return null
+      val args = writeCryptoFile(destFile.absolutePath, bytes)
+      CryptoFile(destFileName, args)
+    } else {
+      uri.inputStream()?.use { Files.copy(it, destFile.toPath()) } ?: return null
+      CryptoFile.plain(destFileName)
+    }
+  } catch (e: Exception) {
+    Log.e(TAG, "Util.kt saveOriginalPng error: ${e.stackTraceToString()}")
+    null
+  }
+}
+
+fun saveImage(uri: URI): CryptoFile? {
+  val original = saveOriginalPng(uri)
+  if (original != null) return original
+  val bitmap = getBitmapFromUri(uri) ?: return null
+  return saveImage(bitmap)
+}""")
+# los PNG grandes se descargan solos en el receptor (hasta 15 MB)
+patch(utils, "const val MAX_IMAGE_SIZE_AUTO_RCV: Long = MAX_IMAGE_SIZE * 2",
+             "const val MAX_IMAGE_SIZE_AUTO_RCV: Long = 15_728_640")
+
+imgs = mp / "common/src/androidMain/kotlin/chat/simplex/common/platform/Images.android.kt"
+patch(imgs, """actual fun resizeImageToStrSize(image: ImageBitmap, maxDataSize: Long): String {
+  var img = image""", """actual fun resizeImageToStrSize(image: ImageBitmap, maxDataSize: Long): String {
+  // Zetaria: para fotos de perfil y miniaturas usa el mayor tamaño/calidad JPEG que quepa en el límite
+  if (maxDataSize <= 100_000 && !image.hasAlpha()) return zetariaResizeJpeg(image, maxDataSize)
+  var img = image""")
+with open(imgs, "a", encoding="utf-8") as f:
+    f.write("""
+
+private fun zetariaJpegStr(img: Bitmap, quality: Int): String {
+  val stream = ByteArrayOutputStream()
+  img.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+  return "data:image/jpg;base64," + Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+}
+
+private fun zetariaResizeJpeg(image: ImageBitmap, maxDataSize: Long): String {
+  var bmp = image.asAndroidBitmap()
+  val maxSide = 1024
+  val longest = maxOf(bmp.width, bmp.height)
+  if (longest > maxSide) {
+    val f = maxSide.toDouble() / longest
+    bmp = Bitmap.createScaledBitmap(bmp, maxOf(1, (bmp.width * f).toInt()), maxOf(1, (bmp.height * f).toInt()), true)
+  }
+  val probe = zetariaJpegStr(bmp, 75)
+  if (probe.length > maxDataSize) {
+    val f = minOf(1.0, sqrt(maxDataSize.toDouble() / probe.length) * 1.15)
+    bmp = Bitmap.createScaledBitmap(bmp, maxOf(1, (bmp.width * f).toInt()), maxOf(1, (bmp.height * f).toInt()), true)
+  }
+  while (true) {
+    var lo = 55
+    var hi = 95
+    var best: String? = null
+    while (lo <= hi) {
+      val mid = (lo + hi) / 2
+      val s = zetariaJpegStr(bmp, mid)
+      if (s.length <= maxDataSize) {
+        best = s
+        lo = mid + 1
+      } else {
+        hi = mid - 1
+      }
+    }
+    if (best != null) return best
+    bmp = Bitmap.createScaledBitmap(bmp, maxOf(1, (bmp.width * 0.9).toInt()), maxOf(1, (bmp.height * 0.9).toInt()), true)
+  }
+}
+""")
+print("   PNG original + compresión de perfil aplicados")
