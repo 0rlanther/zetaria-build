@@ -36,7 +36,12 @@ jobs:
              SCRIPT=$(find overlay -name rebrand.sh | head -1)
              echo "Usando: $SCRIPT"
              bash "$SCRIPT" src/apps/multiplatform
-
+             
+      - name: Limitar a arm64 (solo tenemos el núcleo nativo de arm64)
+        run: |
+             sed -i 's/include("arm64-v8a", "armeabi-v7a")/include("arm64-v8a")/' src/apps/multiplatform/android/build.gradle.kts
+             grep -n 'include("' src/apps/multiplatform/android/build.gradle.kts
+             
       - name: Núcleo nativo (Haskell) desde el APK oficial del mismo tag
         run: |
           curl -fL -o official.apk \
