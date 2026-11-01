@@ -29,4 +29,7 @@ sed -i "s#packageName = \"SimpleX\"#packageName = \"${APP_NAME}\"#; s#packageNam
 echo "==> Íconos"
 python3 "$HERE/gen_icons.py" "$HERE/branding/zetaria_icon.png" "$MP"
 
+echo "==> Textos y logos de la interfaz"
+python3 "$HERE/rebrand_ui.py" "$MP"
+
 echo "Listo. Cambios aplicados en $MP"
