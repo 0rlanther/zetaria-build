@@ -87,7 +87,7 @@ fun ZetariaWelcome(user: User?, onboardingStage: SharedPreference<OnboardingStag
           stringResource(MR.strings.zetaria_welcome_text),
           style = MaterialTheme.typography.body1,
           color = Color(0xFFE9DDFF),
-          textAlign = TextAlign.Justify,
+          textAlign = TextAlign.Start,
           lineHeight = 22.sp,
           modifier = Modifier.padding(top = DEFAULT_PADDING)
         )
