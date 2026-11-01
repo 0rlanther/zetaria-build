@@ -33,7 +33,9 @@ jobs:
       - name: Aplicar marca Zetaria
         run: |
           pip install pillow
-          bash overlay/rebrand.sh src/apps/multiplatform
+             SCRIPT=$(find overlay -name rebrand.sh | head -1)
+             echo "Usando: $SCRIPT"
+             bash "$SCRIPT" src/apps/multiplatform
 
       - name: Núcleo nativo (Haskell) desde el APK oficial del mismo tag
         run: |
