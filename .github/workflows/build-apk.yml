@@ -1,0 +1,79 @@
+name: Build Zetaria APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag de SimpleX a usar como base (debe tener APK en sus releases)"
+        default: "v7.0.3"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Tu repo (branding + scripts)
+        uses: actions/checkout@v4
+        with:
+          path: overlay
+
+      - name: Código fuente de SimpleX en el tag elegido
+        uses: actions/checkout@v4
+        with:
+          repository: simplex-chat/simplex-chat
+          ref: ${{ inputs.tag }}
+          path: src
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Aplicar marca Zetaria
+        run: |
+          pip install pillow
+          bash overlay/rebrand.sh src/apps/multiplatform
+
+      - name: Núcleo nativo (Haskell) desde el APK oficial del mismo tag
+        run: |
+          curl -fL -o official.apk \
+            "https://github.com/simplex-chat/simplex-chat/releases/download/${{ inputs.tag }}/simplex-aarch64.apk"
+          LIBS=src/apps/multiplatform/common/src/commonMain/cpp/android/libs/arm64-v8a
+          mkdir -p "$LIBS"
+          unzip -j official.apk lib/arm64-v8a/libsimplex.so lib/arm64-v8a/libsupport.so -d "$LIBS"
+          ls -la "$LIBS"
+
+      - name: Preparar SDK/NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;23.1.7779620" "cmake;3.22.1" "platforms;android-35"
+
+      - name: Compilar (solo arm64)
+        working-directory: src/apps/multiplatform
+        run: ./gradlew assembleFossRelease --no-daemon
+
+      - name: Firmar APK
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          UNSIGNED=$(find src/apps/multiplatform/android/build/outputs/apk -name "*arm64*release*.apk" | head -1)
+          [ -n "$UNSIGNED" ] || { find src/apps/multiplatform/android/build/outputs -name "*.apk"; echo "No se encontró APK arm64"; exit 1; }
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > zetaria.jks; PASS="$KEYSTORE_PASS"
+          else
+            echo "::warning::Sin keystore propio: se usa una clave temporal. Las actualizaciones futuras exigirán la misma clave."
+            PASS=zetaria-temp-pass
+            keytool -genkeypair -keystore zetaria.jks -alias zetaria -keyalg RSA -keysize 4096 \
+              -validity 36500 -storepass "$PASS" -keypass "$PASS" -dname "CN=Zetaria"
+          fi
+          "$BT/zipalign" -f -p 4 "$UNSIGNED" aligned.apk
+          "$BT/apksigner" sign --ks zetaria.jks --ks-pass pass:"$PASS" --out Zetaria.apk aligned.apk
+          "$BT/apksigner" verify Zetaria.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Zetaria-apk
+          path: Zetaria.apk
