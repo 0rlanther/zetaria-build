@@ -236,7 +236,7 @@ patch(mp / "build.gradle.kts", """        maven("https://jitpack.io")
 patch(mp / "common/build.gradle.kts", """        implementation("io.coil-kt:coil-gif:2.6.0")""", """        implementation("io.coil-kt:coil-gif:2.6.0")
 
         // Zetaria: Tor integrado
-        implementation("info.guardianproject:tor-android:0.4.9.14") {
+        implementation("info.guardianproject:tor-android:0.4.8.16") {
             exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
         }
         implementation("info.guardianproject:jtorctl:0.4.5.7")""")
