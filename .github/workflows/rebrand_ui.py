@@ -283,3 +283,75 @@ new = (
 x = x.replace("</resources>", new + "</resources>")
 base.write_text(x, encoding="utf-8")
 print("   Tor integrado + PNG fluido aplicados")
+
+
+# ---------- Tor visible también en cada operador (SimpleX, Flux) ----------
+# Estos parches son opcionales: si el código de SimpleX no coincide con lo esperado,
+# se avisa y se omiten, sin romper la compilación que ya funciona.
+def patch_optional(path, old, new, what):
+    if not path.exists():
+        print(f"   AVISO: no existe {path.name}; se omite: {what}")
+        return False
+    t = path.read_text(encoding="utf-8")
+    if old not in t:
+        print(f"   AVISO: no encontré el punto de inserción en {path.name}; se omite: {what}")
+        return False
+    path.write_text(t.replace(old, new, 1), encoding="utf-8")
+    return True
+
+def insert_after_call(path, func_name, call_name, insertion, what):
+    """Inserta `insertion` justo después de la primera llamada `call_name(...)`
+    dentro de `fun func_name(`, contando paréntesis para hallar el cierre."""
+    if not path.exists():
+        print(f"   AVISO: no existe {path.name}; se omite: {what}")
+        return False
+    t = path.read_text(encoding="utf-8")
+    start = t.find(f"fun {func_name}(")
+    if start < 0:
+        print(f"   AVISO: no encontré fun {func_name} en {path.name}; se omite: {what}")
+        return False
+    if "ZetariaTorOperatorSection" in t:
+        return True  # ya aplicado
+    call = t.find(f"{call_name}(", start)
+    if call < 0:
+        print(f"   AVISO: no encontré {call_name}( en {func_name}; se omite: {what}")
+        return False
+    i = call + len(call_name)
+    depth = 0
+    while i < len(t):
+        c = t[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    else:
+        print(f"   AVISO: paréntesis sin cerrar en {path.name}; se omite: {what}")
+        return False
+    t = t[:i + 1] + insertion + t[i + 1:]
+    path.write_text(t, encoding="utf-8")
+    return True
+
+nas = kt / "views/usersettings/networkAndServers"
+ok = insert_after_call(
+    nas / "OperatorView.kt", "OperatorViewLayout", "AppBarTitle",
+    "\n    if (appPlatform.isAndroid && chatModel.currentRemoteHost.value == null) {\n"
+    "      ZetariaTorOperatorSection()\n    }",
+    "sección Tor dentro de cada operador (SimpleX y Flux)")
+print("   Tor visible en operadores SimpleX/Flux" if ok else "   Tor en operadores: omitido (ver avisos)")
+
+# R8/ProGuard: la librería de Tor usa JNI; si se ofusca, la app se cierra al iniciar Tor.
+pg = mp / "android/proguard-rules.pro"
+rules = ("\n# Zetaria: Tor integrado (JNI)\n"
+         "-keep class org.torproject.jni.** { *; }\n"
+         "-keep class net.freehaven.tor.control.** { *; }\n"
+         "-dontwarn org.torproject.jni.**\n")
+if pg.exists():
+    if "org.torproject.jni" not in pg.read_text(encoding="utf-8"):
+        with open(pg, "a", encoding="utf-8") as f:
+            f.write(rules)
+    print("   reglas ProGuard para Tor añadidas")
+else:
+    print("   AVISO: no existe proguard-rules.pro; se omiten reglas de Tor")
