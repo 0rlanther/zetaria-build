@@ -219,3 +219,67 @@ private fun zetariaResizeJpeg(image: ImageBitmap, maxDataSize: Long): String {
 }
 """)
 print("   PNG original + compresión de perfil aplicados")
+
+
+# ---------- Tor integrado + PNG fluido en pantalla completa ----------
+# 1) Pantalla completa: limitar la decodificación a 2560 px (antes: tamaño original, que traba la app)
+patch(mp / "common/src/androidMain/kotlin/chat/simplex/common/views/chat/item/ImageFullScreenView.android.kt",
+      ".size(Size.ORIGINAL)", ".size(Size(2560, 2560))")
+
+# 2) Dependencias de Tor (librería oficial del Guardian Project)
+patch(mp / "build.gradle.kts", """        maven("https://jitpack.io")
+    }""", """        maven("https://jitpack.io")
+        maven("https://raw.githubusercontent.com/guardianproject/gpmaven/master") {
+            content { includeGroup("info.guardianproject") }
+        }
+    }""")
+patch(mp / "common/build.gradle.kts", """        implementation("io.coil-kt:coil-gif:2.6.0")""", """        implementation("io.coil-kt:coil-gif:2.6.0")
+
+        // Zetaria: Tor integrado
+        implementation("info.guardianproject:tor-android:0.4.9.14") {
+            exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+        }
+        implementation("info.guardianproject:jtorctl:0.4.5.7")""")
+
+# 3) Preferencia, código y pantalla
+patch(kt / "model/SimpleXAPI.kt", "  val networkRequiredHostMode = mkBoolPreference(SHARED_PREFS_NETWORK_REQUIRED_HOST_MODE, false)",
+      "  val networkRequiredHostMode = mkBoolPreference(SHARED_PREFS_NETWORK_REQUIRED_HOST_MODE, false)\n  val zetariaTorEnabled = mkBoolPreference(\"ZetariaTorEnabled\", false)")
+tor = here / "templates/tor"
+(mp / "common/src/commonMain/kotlin/chat/simplex/common/platform/ZetariaTor.kt").write_text((tor / "ZetariaTor.kt").read_text(encoding="utf-8"), encoding="utf-8")
+(mp / "common/src/androidMain/kotlin/chat/simplex/common/platform/ZetariaTor.android.kt").write_text((tor / "ZetariaTor.android.kt").read_text(encoding="utf-8"), encoding="utf-8")
+(mp / "common/src/desktopMain/kotlin/chat/simplex/common/platform/ZetariaTor.desktop.kt").write_text((tor / "ZetariaTor.desktop.kt").read_text(encoding="utf-8"), encoding="utf-8")
+(kt / "views/usersettings/networkAndServers/ZetariaTorSection.kt").write_text((tor / "ZetariaTorSection.kt").read_text(encoding="utf-8"), encoding="utf-8")
+patch(kt / "views/usersettings/networkAndServers/NetworkAndServers.kt",
+      "    SectionView(generalGetString(MR.strings.settings_section_title_messages)) {",
+      "    if (appPlatform.isAndroid && currentRemoteHost == null) {\n      ZetariaTorSection(networkUseSocksProxy)\n    }\n\n    SectionView(generalGetString(MR.strings.settings_section_title_messages)) {")
+
+# 4) Arranque automático de Tor si quedó activado
+patch(mp / "android/src/main/java/chat/simplex/app/SimplexApp.kt", "\n    deleteOldChatArchive()\n", """
+    deleteOldChatArchive()
+    // Zetaria: iniciar Tor integrado si el usuario lo dejó activado
+    if (appPrefs.zetariaTorEnabled.get() && appPrefs.networkUseSocksProxy.get()) {
+      withLongRunningApi {
+        val torPort = chat.simplex.common.platform.ZetariaTor.start()
+        if (torPort != null && torPort != appPrefs.networkProxy.get().port) {
+          appPrefs.networkProxy.set(appPrefs.networkProxy.get().copy(port = torPort))
+          if (chatModel.chatRunning.value == true) {
+            chatModel.controller.apiSetNetworkConfig(chatModel.controller.getNetCfg())
+          }
+        }
+      }
+    }
+""")
+
+# 5) Textos
+x = base.read_text(encoding="utf-8")
+new = (
+ '  <string name="zetaria_tor_title">Red Tor</string>\n'
+ '  <string name="zetaria_tor_toggle">Usar Tor integrado (.onion)</string>\n'
+ '  <string name="zetaria_tor_footer">Conecta a los servidores a través de la red Tor, usando sus direcciones .onion cuando existen. Aumenta la privacidad, pero puede ser más lento y gastar más batería.</string>\n'
+ '  <string name="zetaria_tor_starting">Iniciando Tor… puede tardar hasta un par de minutos.</string>\n'
+ '  <string name="zetaria_tor_active">Tor activo (proxy local en el puerto %1$d). Tu tráfico sale por la red Tor.</string>\n'
+ '  <string name="zetaria_tor_error_title">No se pudo iniciar Tor</string>\n'
+ '  <string name="zetaria_tor_error_text">Tor no logró conectarse. Revisa tu conexión a internet e inténtalo de nuevo. La app sigue funcionando sin Tor.</string>\n')
+x = x.replace("</resources>", new + "</resources>")
+base.write_text(x, encoding="utf-8")
+print("   Tor integrado + PNG fluido aplicados")
