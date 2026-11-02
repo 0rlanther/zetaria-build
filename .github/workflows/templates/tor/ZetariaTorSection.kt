@@ -1,5 +1,8 @@
 package chat.simplex.common.views.usersettings.networkAndServers
 
+import SectionDividerSpaced
+import SectionTextFooter
+import SectionView
 import androidx.compose.runtime.*
 import chat.simplex.common.model.*
 import chat.simplex.common.platform.*
@@ -11,7 +14,7 @@ import dev.icerock.moko.resources.compose.stringResource
 // Estado compartido: la misma sección aparece en "Red y servidores" y en la pantalla de cada
 // operador (SimpleX, Flux), y todas deben mostrar el mismo estado.
 private val zetariaTorOn: MutableState<Boolean> by lazy {
-  mutableStateOf(appPrefs.zetariaTorEnabled.get() && appPrefs.networkUseSocksProxy.get())
+  mutableStateOf(chatModel.controller.appPrefs.zetariaTorEnabled.get() && chatModel.controller.appPrefs.networkUseSocksProxy.get())
 }
 private val zetariaTorStatus: MutableState<String?> = mutableStateOf(null)
 private val zetariaTorBusy: MutableState<Boolean> = mutableStateOf(false)
@@ -20,7 +23,7 @@ private val zetariaTorBusy: MutableState<Boolean> = mutableStateOf(false)
 // de la pantalla padre, lo lee de las preferencias.
 @Composable
 fun ZetariaTorOperatorSection() {
-  val useProxy = remember { mutableStateOf(appPrefs.networkUseSocksProxy.get()) }
+  val useProxy = remember { mutableStateOf(chatModel.controller.appPrefs.networkUseSocksProxy.get()) }
   ZetariaTorSection(useProxy)
 }
 
