@@ -8,12 +8,28 @@ import chat.simplex.common.views.usersettings.*
 import chat.simplex.res.MR
 import dev.icerock.moko.resources.compose.stringResource
 
+// Estado compartido: la misma sección aparece en "Red y servidores" y en la pantalla de cada
+// operador (SimpleX, Flux), y todas deben mostrar el mismo estado.
+private val zetariaTorOn: MutableState<Boolean> by lazy {
+  mutableStateOf(appPrefs.zetariaTorEnabled.get() && appPrefs.networkUseSocksProxy.get())
+}
+private val zetariaTorStatus: MutableState<String?> = mutableStateOf(null)
+private val zetariaTorBusy: MutableState<Boolean> = mutableStateOf(false)
+
+// Versión para la pantalla de cada operador (SimpleX / Flux): no recibe el estado del proxy
+// de la pantalla padre, lo lee de las preferencias.
+@Composable
+fun ZetariaTorOperatorSection() {
+  val useProxy = remember { mutableStateOf(appPrefs.networkUseSocksProxy.get()) }
+  ZetariaTorSection(useProxy)
+}
+
 // Sección visible junto a los servidores predefinidos: interruptor de Tor integrado.
 @Composable
 fun ZetariaTorSection(networkUseSocksProxy: MutableState<Boolean>) {
-  val enabled = remember { mutableStateOf(appPrefs.zetariaTorEnabled.get() && networkUseSocksProxy.value) }
-  val busy = remember { mutableStateOf(false) }
-  val status = remember { mutableStateOf<String?>(null) }
+  val enabled = zetariaTorOn
+  val busy = zetariaTorBusy
+  val status = zetariaTorStatus
   SectionView(stringResource(MR.strings.zetaria_tor_title)) {
     PreferenceToggle(
       stringResource(MR.strings.zetaria_tor_toggle),
