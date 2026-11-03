@@ -18,6 +18,7 @@ private val zetariaTorOn: MutableState<Boolean> by lazy {
 }
 private val zetariaTorStatus: MutableState<String?> = mutableStateOf(null)
 private val zetariaTorBusy: MutableState<Boolean> = mutableStateOf(false)
+private var zetariaCrashReported = false
 
 // Versión para la pantalla de cada operador (SimpleX / Flux): no recibe el estado del proxy
 // de la pantalla padre, lo lee de las preferencias.
@@ -33,6 +34,16 @@ fun ZetariaTorSection(networkUseSocksProxy: MutableState<Boolean>) {
   val enabled = zetariaTorOn
   val busy = zetariaTorBusy
   val status = zetariaTorStatus
+  LaunchedEffect(Unit) {
+    val stage = ZetariaTor.interruptedStage
+    if (stage != null && !zetariaCrashReported) {
+      zetariaCrashReported = true
+      AlertManager.shared.showAlertMsg(
+        title = "Tor se cerró de forma inesperada",
+        text = "El intento anterior de iniciar Tor se interrumpió en la etapa: $stage. Tor quedó desactivado."
+      )
+    }
+  }
   SectionView(stringResource(MR.strings.zetaria_tor_title)) {
     PreferenceToggle(
       stringResource(MR.strings.zetaria_tor_toggle),
@@ -47,6 +58,14 @@ fun ZetariaTorSection(networkUseSocksProxy: MutableState<Boolean>) {
             } else {
               disableZetariaTor(enabled, status, networkUseSocksProxy)
             }
+          } catch (e: Throwable) {
+            ZetariaTor.stop()
+            status.value = null
+            enabled.value = false
+            AlertManager.shared.showAlertMsg(
+              title = generalGetString(MR.strings.zetaria_tor_error_title),
+              text = "${e.javaClass.simpleName}: ${e.message ?: "sin detalle"}"
+            )
           } finally {
             busy.value = false
           }
@@ -71,7 +90,7 @@ private suspend fun enableZetariaTor(
     enabled.value = false
     AlertManager.shared.showAlertMsg(
       title = generalGetString(MR.strings.zetaria_tor_error_title),
-      text = generalGetString(MR.strings.zetaria_tor_error_text)
+      text = generalGetString(MR.strings.zetaria_tor_error_text) + (ZetariaTor.lastError?.let { "\n\n($it)" } ?: "")
     )
     return
   }
