@@ -245,6 +245,8 @@ else:
 
 
 # ---------- Interfaz morada oscura por defecto (la bienvenida usa colores propios y no cambia) ----------
+# El tema que la app usa por defecto en modo oscuro es el de SimpleX (azul marino), que aquí se llama
+# "Zetaria". Se pinta de morado ESE tema; el tema "Oscuro" queda como el original.
 # Parches opcionales: si algo no coincide con el código de SimpleX, se avisa con AVISO y se omite.
 def _value_end(t, i):
     """Devuelve el índice donde termina el valor que empieza en i (coma o salto de línea
@@ -293,13 +295,13 @@ def set_palette(text, block, values):
 
 theme_dir = kt / "ui/theme"
 palette = {
-    "DarkColorPalette": {
+    "SimplexColorPalette": {
         "primary": "Color(0xFFA678FF)",      # acento violeta
         "primaryVariant": "Color(0xFFA678FF)",
         "background": "Color(0xFF0F0A1A)",   # fondo morado casi negro
         "surface": "Color(0xFF1B1230)",      # tarjetas y listas
     },
-    "DarkColorPaletteApp": {
+    "SimplexColorPaletteApp": {
         "title": "Color(0xFFA678FF)",
         "primaryVariant2": "Color(0xFF2E1A5C)",
         "sentMessage": "Color(0xFF2E1A5C)",
@@ -323,7 +325,10 @@ for block, values in palette.items():
             print(f"   AVISO: en {block} no encontré: {', '.join(missing)} (el resto sí se cambió)")
         break
     if not applied:
-        print(f"   AVISO: no encontré {block} en ui/theme; se omite")
+        found = []
+        for f in sorted(theme_dir.glob("*.kt")) if theme_dir.exists() else []:
+            found += re.findall(r"\bval\s+(\w*Palette\w*)\b", f.read_text(encoding="utf-8"))
+        print(f"   AVISO: no encontré {block} en ui/theme; se omite. Paletas existentes: {sorted(set(found))}")
 print(f"   paleta morada oscura aplicada a {done} de {len(palette)} bloques")
 
 # Modo de color por defecto: oscuro (antes seguía al sistema)
