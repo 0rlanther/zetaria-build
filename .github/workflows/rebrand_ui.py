@@ -242,3 +242,96 @@ if api.exists():
         print("   AVISO: no encontré la preferencia SHARED_PREFS_ONE_HAND_UI; se omite")
 else:
     print("   AVISO: no existe SimpleXAPI.kt; se omite")
+
+
+# ---------- Interfaz morada oscura por defecto (la bienvenida usa colores propios y no cambia) ----------
+# Parches opcionales: si algo no coincide con el código de SimpleX, se avisa con AVISO y se omite.
+def _value_end(t, i):
+    """Devuelve el índice donde termina el valor que empieza en i (coma o salto de línea
+    fuera de paréntesis, o el paréntesis que cierra el bloque)."""
+    depth = 0
+    while i < len(t):
+        c = t[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif c in ",\n" and depth == 0:
+            return i
+        i += 1
+    return i
+
+def set_palette(text, block, values):
+    """Cambia valores `clave = ...` dentro de `val <block> = algo(...)`. Devuelve (texto, faltantes)."""
+    m = re.search(r"\bval\s+" + re.escape(block) + r"\b", text)
+    if not m:
+        return text, None
+    open_i = text.find("(", m.end())
+    if open_i < 0:
+        return text, None
+    depth, j = 0, open_i
+    while j < len(text):
+        if text[j] == "(":
+            depth += 1
+        elif text[j] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        j += 1
+    body = text[open_i + 1:j]
+    missing = []
+    for key, color in values.items():
+        km = re.search(r"(?<![\w.])" + re.escape(key) + r"\s*=\s*", body)
+        if not km:
+            missing.append(key)
+            continue
+        end = _value_end(body, km.end())
+        body = body[:km.end()] + color + body[end:]
+    return text[:open_i + 1] + body + text[j:], missing
+
+theme_dir = kt / "ui/theme"
+palette = {
+    "DarkColorPalette": {
+        "primary": "Color(0xFFA678FF)",      # acento violeta
+        "primaryVariant": "Color(0xFFA678FF)",
+        "background": "Color(0xFF0F0A1A)",   # fondo morado casi negro
+        "surface": "Color(0xFF1B1230)",      # tarjetas y listas
+    },
+    "DarkColorPaletteApp": {
+        "title": "Color(0xFFA678FF)",
+        "primaryVariant2": "Color(0xFF2E1A5C)",
+        "sentMessage": "Color(0xFF2E1A5C)",
+        "sentQuote": "Color(0xFF3B2477)",
+        "receivedMessage": "Color(0xFF221A33)",
+        "receivedQuote": "Color(0xFF2E2445)",
+    },
+}
+done = 0
+for block, values in palette.items():
+    applied = False
+    for f in sorted(theme_dir.glob("*.kt")) if theme_dir.exists() else []:
+        src = f.read_text(encoding="utf-8")
+        new_src, missing = set_palette(src, block, values)
+        if missing is None:
+            continue
+        f.write_text(new_src, encoding="utf-8")
+        applied = True
+        done += 1
+        if missing:
+            print(f"   AVISO: en {block} no encontré: {', '.join(missing)} (el resto sí se cambió)")
+        break
+    if not applied:
+        print(f"   AVISO: no encontré {block} en ui/theme; se omite")
+print(f"   paleta morada oscura aplicada a {done} de {len(palette)} bloques")
+
+# Modo de color por defecto: oscuro (antes seguía al sistema)
+if api.exists():
+    src = api.read_text(encoding="utf-8")
+    new_src, n = re.subn(r"(SHARED_PREFS_CURRENT_THEME\s*,\s*)DefaultTheme\.SYSTEM_THEME_NAME", r'\1"DARK"', src, count=1)
+    if n:
+        api.write_text(new_src, encoding="utf-8")
+        print("   modo de color por defecto: oscuro")
+    else:
+        print("   AVISO: no encontré el modo de color por defecto; se omite")
