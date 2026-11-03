@@ -258,12 +258,18 @@ patch(mp / "android/src/main/java/chat/simplex/app/SimplexApp.kt", "\n    delete
     deleteOldChatArchive()
     // Zetaria: iniciar Tor integrado si el usuario lo dejó activado
     if (appPrefs.zetariaTorEnabled.get() && appPrefs.networkUseSocksProxy.get()) {
-      withLongRunningApi {
-        val torPort = chat.simplex.common.platform.ZetariaTor.start()
-        if (torPort != null && torPort != appPrefs.networkProxy.get().port) {
-          appPrefs.networkProxy.set(appPrefs.networkProxy.get().copy(port = torPort))
-          if (chatModel.chatRunning.value == true) {
-            chatModel.controller.apiSetNetworkConfig(chatModel.controller.getNetCfg())
+      if (chat.simplex.common.platform.ZetariaTor.interruptedStage != null) {
+        // El arranque anterior de Tor se cortó a mitad: no reintentar (evita cierres en bucle)
+        appPrefs.zetariaTorEnabled.set(false)
+        appPrefs.networkUseSocksProxy.set(false)
+      } else {
+        withLongRunningApi {
+          val torPort = chat.simplex.common.platform.ZetariaTor.start()
+          if (torPort != null && torPort != appPrefs.networkProxy.get().port) {
+            appPrefs.networkProxy.set(appPrefs.networkProxy.get().copy(port = torPort))
+            if (chatModel.chatRunning.value == true) {
+              chatModel.controller.apiSetNetworkConfig(chatModel.controller.getNetCfg())
+            }
           }
         }
       }
@@ -355,3 +361,19 @@ if pg.exists():
     print("   reglas ProGuard para Tor añadidas")
 else:
     print("   AVISO: no existe proguard-rules.pro; se omiten reglas de Tor")
+
+
+# ---------- "Barra de herramientas accesible" desactivada por defecto ----------
+# Solo cambia el valor inicial de instalaciones nuevas; quien ya la tenga activada la conserva.
+import re
+api = kt / "model/SimpleXAPI.kt"
+if api.exists():
+    src = api.read_text(encoding="utf-8")
+    new_src, n = re.subn(r"(SHARED_PREFS_ONE_HAND_UI\s*,\s*)(true|appPlatform\.isAndroid)", r"\1false", src, count=1)
+    if n:
+        api.write_text(new_src, encoding="utf-8")
+        print("   Barra de herramientas accesible: desactivada por defecto")
+    else:
+        print("   AVISO: no encontré la preferencia SHARED_PREFS_ONE_HAND_UI; se omite")
+else:
+    print("   AVISO: no existe SimpleXAPI.kt; se omite")
