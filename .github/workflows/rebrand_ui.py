@@ -439,6 +439,8 @@ def find_statement(t, pairs, p, limit=1200):
         best = sp
         if re.match(r"SectionView\b", t[s:e]):
             break  # una sección de ajustes completa: no seguir creciendo
+        if re.match(r"\s*,", t[e:]):
+            break  # elemento de una lista/argumentos (p. ej. una novedad en "Qué hay de nuevo"): solo ese elemento
     return best
 
 def line_expand(t, s, e):
@@ -536,6 +538,9 @@ def remove_crowdfunding(files, needle_re):
         t = texts[f]
         exp = []
         for s, e in spans:
+            mc = re.match(r"[ \t]*,", t[e:])
+            if mc:
+                e += mc.end()  # si era un elemento de una lista, quitar también su coma
             s, e = line_expand(t, s, e)
             pls = t.rfind("\n", 0, s - 1) + 1 if s > 0 else 0
             if t[pls:s].strip() == "SectionDividerSpaced()":
