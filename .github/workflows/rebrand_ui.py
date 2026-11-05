@@ -340,3 +340,239 @@ if api.exists():
         print("   modo de color por defecto: oscuro")
     else:
         print("   AVISO: no encontré el modo de color por defecto; se omite")
+
+
+# ---------- Quitar el crowdfunding de SimpleX (Wefunder) ----------
+# Se ELIMINA del código (no se oculta): la sección/bloque que contiene los textos, y si es una
+# función propia (p. ej. el banner) se borra la función entera, sus llamadas y sus imports.
+# Cada cambio se imprime en el log; lo que no se pueda resolver sale como AVISO.
+def bracket_pairs(t):
+    pairs, stack, i, n = {}, [], 0, len(t)
+    while i < n:
+        c = t[i]
+        if t.startswith('"""', i):
+            j = t.find('"""', i + 3); i = n if j < 0 else j + 3; continue
+        if c == '"':
+            i += 1
+            while i < n and t[i] != '"':
+                if t[i] == "\\": i += 1
+                elif t[i] == "\n": break
+                i += 1
+            i += 1; continue
+        if c == "'":
+            j = i + 1
+            j += 2 if (j < n and t[j] == "\\") else 1
+            i = j + 1 if (j < n and t[j] == "'") else i + 1
+            continue
+        if t.startswith("//", i):
+            j = t.find("\n", i); i = n if j < 0 else j; continue
+        if t.startswith("/*", i):
+            j = t.find("*/", i + 2); i = n if j < 0 else j + 2; continue
+        if c in "({[":
+            stack.append(i)
+        elif c in ")}]" and stack:
+            pairs[stack.pop()] = i
+        i += 1
+    return pairs
+
+def _ident_before(t, j):
+    k = j
+    while k >= 0 and (t[k].isalnum() or t[k] == "_"):
+        k -= 1
+    return k + 1, t[k + 1:j + 1]
+
+def call_span(t, pairs, rev, o):
+    """Sentencia-llamada (p. ej. `Row(...) { ... }`) a la que pertenece el paréntesis/llave en o."""
+    if t[o] == "{":
+        j = o - 1
+        while j >= 0 and t[j] in " \t\n":
+            j -= 1
+        if j >= 0 and t[j] == ")":
+            o2 = rev.get(j)
+            if o2 is None or t[o2] != "(":
+                return None
+            o = o2
+        elif j >= 0 and (t[j].isalnum() or t[j] == "_"):
+            start, name = _ident_before(t, j)
+            if not name[0].isupper():
+                return None
+            ls = t.rfind("\n", 0, start) + 1
+            if t[ls:start].strip():
+                return None
+            return start, pairs[o] + 1
+        else:
+            return None
+    j = o - 1
+    if j < 0 or not (t[j].isalnum() or t[j] == "_"):
+        return None
+    start, name = _ident_before(t, j)
+    if not (name[0].isupper() or name == "if"):
+        return None
+    ls = t.rfind("\n", 0, start) + 1
+    if t[ls:start].strip():
+        return None
+    end = pairs[o] + 1
+    m = re.match(r"\s*\{", t[end:])
+    if m:
+        end = pairs[end + m.end() - 1] + 1
+    if name == "if":
+        while True:
+            m = re.match(r"\s*else\s*\{", t[end:])
+            if not m:
+                break
+            end = pairs[end + m.end() - 1] + 1
+    return start, end
+
+def find_statement(t, pairs, p, limit=1200):
+    rev = {c: o for o, c in pairs.items()}
+    opens = sorted((o for o, c in pairs.items() if o < p < c and t[o] in "({"), reverse=True)
+    best = None
+    for o in opens:
+        sp = call_span(t, pairs, rev, o)
+        if not sp:
+            continue
+        s, e = sp
+        if e - s > limit:
+            break
+        if len(re.findall(r"\b(?:SettingsActionItem|SectionItemView|SectionItemWithValue)\(", t[s:e])) > 2:
+            break
+        best = sp
+        if re.match(r"SectionView\b", t[s:e]):
+            break  # una sección de ajustes completa: no seguir creciendo
+    return best
+
+def line_expand(t, s, e):
+    ls = t.rfind("\n", 0, s) + 1
+    if not t[ls:s].strip():
+        s = ls
+    le = t.find("\n", e)
+    le = len(t) if le < 0 else le
+    if not t[e:le].strip():
+        e = min(le + 1, len(t))
+    return s, e
+
+def sole_function(t, pairs, s, e):
+    """Si t[s:e] es todo el cuerpo de `fun Nombre(...) { ... }`, devuelve (nombre, inicio, fin)."""
+    best = None
+    for o, c in pairs.items():
+        if t[o] == "{" and o < s and e <= c and not t[o + 1:s].strip() and not t[e:c].strip():
+            if best is None or o > best:
+                best = o
+    if best is None:
+        return None
+    o = best
+    base = max(0, o - 800)
+    funs = list(re.finditer(r"\bfun\s+(?:<[^>]*>\s*)?(?:[\w.]+\.)?(\w+)\s*\(", t[base:o]))
+    if not funs:
+        return None
+    m = funs[-1]
+    paren = base + m.end() - 1
+    if paren not in pairs or not re.fullmatch(r"\s*(?::\s*[\w<>?.]+)?\s*", t[pairs[paren] + 1:o]):
+        return None
+    fs = base + m.start()
+    fs = t.rfind("\n", 0, fs) + 1
+    while True:  # incluir anotaciones (@Composable...) de las líneas anteriores
+        pls = t.rfind("\n", 0, fs - 1) + 1 if fs > 0 else 0
+        if fs > 0 and t[pls:fs].strip().startswith("@"):
+            fs = pls
+        else:
+            break
+    return m.group(1), fs, pairs[o] + 1
+
+def remove_crowdfunding(files, needle_re):
+    texts = {f: f.read_text(encoding="utf-8") for f in files}
+    pairs_of = {f: bracket_pairs(t) for f, t in texts.items()}
+    edits = {f: [] for f in files}
+    report, skipped, funcs = [], [], {}
+    for f, t in texts.items():
+        for m in needle_re.finditer(t):
+            ls = t.rfind("\n", 0, m.start()) + 1
+            line = t[ls:t.find("\n", m.start())].strip()
+            if line.startswith(("//", "*", "/*", "import ")):
+                continue
+            sp = find_statement(t, pairs_of[f], m.start())
+            if not sp:
+                skipped.append((f, t.count("\n", 0, m.start()) + 1, line))
+                continue
+            fn = sole_function(t, pairs_of[f], *sp)
+            if fn:
+                funcs[(f, fn[0])] = (fn[1], fn[2], sp)
+            else:
+                edits[f].append(sp)
+                report.append(f"{f.name}:{t.count(chr(10), 0, sp[0]) + 1} bloque")
+    for (f, name), (fs, fe, inner) in funcs.items():
+        uses, ok = [], True
+        for g, t in texts.items():
+            for m in re.finditer(r"\b" + re.escape(name) + r"\b", t):
+                if g == f and fs <= m.start() < fe:
+                    continue
+                ls = t.rfind("\n", 0, m.start()) + 1
+                line = t[ls:t.find("\n", m.start())]
+                if line.strip().startswith("import "):
+                    uses.append((g, ls, ls + len(line) + 1))
+                    continue
+                k = m.end()
+                while k < len(t) and t[k] in " \t":
+                    k += 1
+                sp = None
+                if k < len(t) and t[k] == "(" and k in pairs_of[g]:
+                    rev = {c: o for o, c in pairs_of[g].items()}
+                    sp = call_span(t, pairs_of[g], rev, k)
+                if sp and sp[0] == m.start():
+                    uses.append((g, sp[0], sp[1]))
+                else:
+                    ok = False
+        if ok:
+            edits[f].append((fs, fe))
+            for g, s, e in uses:
+                edits[g].append((s, e))
+            report.append(f"{f.name}: función {name} eliminada con {len(uses)} uso(s)/import(s)")
+        else:
+            edits[f].append(inner)
+            report.append(f"{f.name}: función {name} vaciada (tiene usos que no se pudieron quitar)")
+    for f, spans in edits.items():
+        if not spans:
+            continue
+        t = texts[f]
+        exp = []
+        for s, e in spans:
+            s, e = line_expand(t, s, e)
+            pls = t.rfind("\n", 0, s - 1) + 1 if s > 0 else 0
+            if t[pls:s].strip() == "SectionDividerSpaced()":
+                s = pls
+            exp.append((s, e))
+        exp.sort()
+        merged = []
+        for s, e in exp:
+            if merged and s <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+            else:
+                merged.append((s, e))
+        for s, e in reversed(merged):
+            t = t[:s] + t[e:]
+        f.write_text(t, encoding="utf-8")
+    return list(dict.fromkeys(report)), skipped
+
+common_src = mp / "common/src"
+kt_files = [f for f in common_src.rglob("*.kt") if "/build/" not in str(f).replace("\\", "/")]
+needles = [r"wefunder", r"invest in simplex"]
+for xml in common_src.rglob("strings.xml"):
+    if xml.parent.name == "base":
+        for name, val in re.findall(r'<string name="([^"]+)"[^>]*>([^<]*)</string>', xml.read_text(encoding="utf-8")):
+            if re.search(r"wefunder|invest in simplex", val, re.I):
+                needles.append(r"MR\.strings\." + re.escape(name) + r"\b")
+needle_re = re.compile("|".join(needles), re.I)
+report, skipped = remove_crowdfunding(kt_files, needle_re)
+for r in report:
+    print(f"   crowdfunding eliminado: {r}")
+for f, line_no, line in skipped:
+    print(f"   AVISO: crowdfunding sin resolver en {f.name}:{line_no}: {line[:120]}")
+left = []
+for f in kt_files:
+    for n, line in enumerate(f.read_text(encoding="utf-8").split("\n"), 1):
+        if needle_re.search(line) and not line.strip().startswith(("//", "*", "/*")):
+            left.append((f.name, n, line.strip()[:100]))
+for name, n, line in left:
+    print(f"   AVISO: queda una referencia en {name}:{n}: {line}")
+if not report and not skipped and not left:
+    print("   AVISO: no encontré textos de crowdfunding/Wefunder en el código")
