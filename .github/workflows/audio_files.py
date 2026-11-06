@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Zetaria: envío y reproducción de audios como archivo.
 
- 1. Botón "Audio" en el menú de adjuntos (selector filtrado a audio/*: mp3, wav, m4a, aac,
-    ogg, opus, flac, amr, mid...). Se envía como ARCHIVO normal, así que también llega a
-    cualquier cliente SimpleX estándar.
+ 1. El botón "Archivo" del menú de adjuntos pasa a llamarse "Archivo y audios". Los audios
+    (mp3, wav, m4a, aac, ogg, opus, flac...) se envían como ARCHIVO normal, así que también
+    llegan a cualquier cliente SimpleX estándar.
  2. En el chat, los archivos de audio ya descargados se muestran con un reproductor propio
     (ícono de archivo de audio + nombre + play/pausa + barra + tiempos), claramente distinto
     de la nota de voz.
@@ -271,87 +271,12 @@ if not file_key:
     die("no encuentro cuál botón del menú es el de Archivo", att_t[:5000])
 print(f"   [audio] botón Archivo = MR.strings.{file_key}")
 
-pairs2 = bracket_pairs(att_t)
-pos = att_t.find(f"MR.strings.{file_key}")
-best = None
-for cm in re.finditer(r"\b[A-Z]\w*\s*\(", att_t):
-    o = att_t.find("(", cm.start())
-    c = pairs2.get(o)
-    if c is None or not (o < pos < c):
-        continue
-    end = c + 1
-    tr = re.match(r"\s*\{", att_t[end:])
-    if tr:
-        end = pairs2[end + tr.end() - 1] + 1
-    if best is None or (end - cm.start()) < (best[1] - best[0]):
-        best = (cm.start(), end, c)
-if not best or att_t[best[0]:best[1]].lstrip().startswith(("Row", "Column", "Box", "Surface")):
-    die("no pude aislar el botón de Archivo", att_t[:5000])
-s, e, paren_close = best
-ls = line_start(att_t, s)
-if att_t[ls:s].strip():
-    die("el botón de Archivo no empieza en su propia línea", att_t[ls:e + 100])
-btn = att_t[ls:e]
-rel_close = paren_close - ls
-flag = f"{PKG_ITEM}.zetariaSetPickAudio()"
-# 1) inyectar la bandera al principio de la acción de clic (offsets sobre el texto original)
-trail = re.match(r"\s*\{", btn[rel_close + 1:])
-if trail:
-    ins = rel_close + 1 + trail.end()
-else:
-    mc = re.search(r"\b(?:onClick|click)\s*=\s*\{", btn)
-    if not mc:
-        die("no encuentro la acción de clic del botón de Archivo", btn)
-    ins = mc.end()
-dup = btn[:ins] + f"\n      {flag}\n      " + btn[ins:]
-# 2) cambiar texto e ícono
-dup, n1 = re.subn(r"MR\.strings\.\w+", "MR.strings.zetaria_audio_button", dup, count=1)
-dup, n2 = re.subn(r"MR\.images\.\w+", "MR.images.zet_audio_file", dup, count=1)
-if not (n1 and n2):
-    die("el botón de Archivo no usa MR.strings / MR.images reconocibles", btn)
-nl = att_t.find("\n", e)
-nl = len(att_t) if nl < 0 else nl + 1
-att_t = att_t[:nl] + dup + "\n" + att_t[nl:]
-if "0.25f" in att_t:
-    att_t = att_t.replace("0.25f", "0.2f")
-    print("   [audio] ancho de botones 25% -> 20% (ahora son 5)")
+# Solo se cambia el texto del botón Archivo (texto nuevo propio; no se toca la clave original)
+att_t, n_lbl = re.subn(r"\bMR\.strings\." + re.escape(file_key) + r"\b", "MR.strings.zetaria_file_audio_button", att_t)
+if not n_lbl:
+    die("no pude cambiar el texto del botón Archivo", att_t[:3000])
 texts[att_f] = att_t
-print(f"   [audio] botón Audio añadido en {att_f.name}")
-
-for f in kt_files:
-    if f == att_f:
-        continue
-    tt = rd(f)
-    d = re.search(r"\bfun\s+ActionButton\s*\(", tt)
-    if d and "0.25f" in tt[d.start(): d.start() + 1500]:
-        print(f"   AVISO: ActionButton en {f.name} usa 0.25f de ancho; con 5 botones puede quedar justo")
-
-# selector de archivos (Android obligatorio): "*/*" -> audio/* si se pulsó Audio
-sel_done = []
-for f in kt_files:
-    p_ = str(f).replace("\\", "/")
-    if "androidMain" not in p_ and "desktopMain" not in p_:
-        continue
-    tt = texts.get(f) or rd(f)
-    fm = re.search(r"\bfun\s+AttachmentSelection\s*\(", tt)
-    if not fm:
-        continue
-    pr = bracket_pairs(tt)
-    o = tt.find("(", fm.start())
-    bo = tt.find("{", pr[o])
-    bc = pr[bo]
-    body = tt[bo:bc]
-    nb, n = re.subn(r'\.launch\(\s*"\*/\*"\s*\)', f".launch({PKG_ITEM}.zetariaFilePickerMime())", body)
-    if n == 0:
-        if "androidMain" in p_:
-            die(f"en {f.name} no encuentro .launch(\"*/*\") dentro de AttachmentSelection", body[:3500])
-        print(f"   AVISO: {f.name} (escritorio): no encontré launch(\"*/*\"); se omite")
-        continue
-    texts[f] = tt[:bo] + nb + tt[bc:]
-    sel_done.append(f)
-    print(f"   [audio] selector filtrable en {f.name} ({n} lanzamiento/s)")
-if not any("androidMain" in str(f).replace("\\", "/") for f in sel_done):
-    die("no encuentro AttachmentSelection en androidMain (selector de archivos)")
+print(f"   [audio] botón Archivo renombrado a 'Archivo y audios' en {att_f.name} ({n_lbl} uso/s)")
 
 # ---------------------------------------------------------------------------
 # 3. Vista previa del redactor: ícono de audio
@@ -414,9 +339,9 @@ for svg in ("zet_audio_file.svg", "zet_play.svg", "zet_pause.svg"):
 
 base = src / "commonMain/resources/MR/base/strings.xml"
 bx = rd(base)
-if "zetaria_audio_button" in bx:
-    die("strings.xml ya tiene zetaria_audio_button")
-add = ('  <string name="zetaria_audio_button">Audio</string>\n'
+if "zetaria_file_audio_button" in bx:
+    die("strings.xml ya tiene zetaria_file_audio_button")
+add = ('  <string name="zetaria_file_audio_button">Archivo y audios</string>\n'
        '  <string name="zetaria_audio_error">No se puede reproducir este audio</string>\n')
 texts[base] = bx.replace("</resources>", add + "</resources>")
 
