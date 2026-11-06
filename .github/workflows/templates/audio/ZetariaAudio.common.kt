@@ -34,3 +34,7 @@ fun zetariaFilePickerMime(): String {
   zetariaPickAudio = false
   return m
 }
+
+fun zetariaSetPickAudio() {
+  zetariaPickAudio = true
+}

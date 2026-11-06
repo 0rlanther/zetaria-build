@@ -75,6 +75,8 @@ jobs:
       - name: Causa del error (solo si falla)
         if: failure()
         run: |
+          echo "=== Errores del compilador Kotlin (líneas e:) ==="
+          grep -n "^e: " build.log | head -60 || true
           echo "=== Líneas clave del error ==="
           grep -n "Caused by\|OutOfMemory\|No space\|Exception:\|What went wrong" -A3 build.log | head -80
 

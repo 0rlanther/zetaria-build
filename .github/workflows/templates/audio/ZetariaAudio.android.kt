@@ -195,6 +195,7 @@ actual fun zetariaAudioAvailable(file: CIFile?): Boolean =
 // Vista: ícono de archivo de audio + nombre + botón play/pausa + barra + tiempos.
 // (La nota de voz de SimpleX es un círculo con onda; esta lleva el ícono de archivo.)
 // ---------------------------------------------------------------------------
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 actual fun ZetariaAudioFileView(file: CIFile, onLongClick: () -> Unit) {
   val path = zetariaLoadedAudioPath(file) ?: return

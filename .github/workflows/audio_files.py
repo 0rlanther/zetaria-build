@@ -134,8 +134,16 @@ f_cf, t_cf, _ = find_def(r"^(?:data\s+)?class\s+CryptoFile\b", "CryptoFile")
 if "cryptoArgs" not in t_cf:
     die("CryptoFile no tiene 'cryptoArgs'")
 
-_, t_gap, _ = find_def(r"^(?:expect\s+|actual\s+)?fun\s+getAppFilePath\s*\(", "getAppFilePath")
-PKG_GAP = package_of(t_gap)
+# getAppFilePath puede tener varias versiones (String / URI) en paquetes distintos: se importan todas
+_rx_gap = re.compile(r"^(?:expect\s+|actual\s+)?fun\s+getAppFilePath\s*\(", re.M)
+GAP_PKGS = []
+for _f in kt_files:
+    _t = rd(_f)
+    if _rx_gap.search(_t) and package_of(_t) not in GAP_PKGS:
+        GAP_PKGS.append(package_of(_t))
+if not GAP_PKGS:
+    die("no encuentro getAppFilePath")
+print(f"   [audio] getAppFilePath definido en: {GAP_PKGS}")
 
 _, t_ctx, _ = find_def(r"^(?:lateinit\s+)?(?:var|val)\s+androidAppContext\b", "androidAppContext")
 PKG_CTX = package_of(t_ctx)
@@ -285,7 +293,7 @@ if att_t[ls:s].strip():
     die("el botón de Archivo no empieza en su propia línea", att_t[ls:e + 100])
 btn = att_t[ls:e]
 rel_close = paren_close - ls
-flag = f"{PKG_ITEM}.zetariaPickAudio = true"
+flag = f"{PKG_ITEM}.zetariaSetPickAudio()"
 # 1) inyectar la bandera al principio de la acción de clic (offsets sobre el texto original)
 trail = re.match(r"\s*\{", btn[rel_close + 1:])
 if trail:
@@ -377,7 +385,7 @@ imports_common = f"import {PKG_MODEL}.CIFile"
 imports_android = "\n".join(dict.fromkeys([
     f"import {PKG_MODEL}.CIFile",
     f"import {PKG_CFA}.CryptoFileArgs",
-    f"import {PKG_GAP}.getAppFilePath",
+] + [f"import {p_}.getAppFilePath" for p_ in GAP_PKGS] + [
     f"import {PKG_CTX}.androidAppContext",
     imp_mr, imp_painter, imp_string,
 ] + imports_extra))
