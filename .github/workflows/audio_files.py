@@ -239,44 +239,61 @@ print(f"   [audio] CIFileView parcheado ({cif_f.name}): if ({cond})")
 # 2. Menú de adjuntos: botón Audio (copia del botón Archivo) + selector filtrado
 #    No depende de nombres internos (enum, etc.): localiza el botón por su texto.
 # ---------------------------------------------------------------------------
-base_xml = src / "commonMain/resources/MR/base/strings.xml"
-xml_vals = dict(re.findall(r'<string name="([^"]+)"[^>]*>([^<]*)</string>', rd(base_xml)))
-
-att_files = [f for f in kt_files if "ChooseAttachment" in f.name]
-if not att_files:
-    att_files = [f for f in kt_files if "MR.strings.gallery_image_button" in rd(f) or "MR.strings.use_camera_button" in rd(f)]
-if not att_files:
-    die("no encuentro el archivo del menú de adjuntos (ChooseAttachmentView.kt)")
-att_f = att_files[0]
-att_t = rd(att_f)
-labels = re.findall(r"MR\.strings\.(\w+)", att_t)
-print(f"   [audio] menú de adjuntos: {att_f.name}; textos usados: {list(dict.fromkeys(labels))}")
+# Se localiza el archivo del menú por lo que contiene (los textos Cámara/Imagen/Vídeo/Archivo en
+# cualquier idioma), no por su nombre. Solo se cambia el texto del botón Archivo con una cadena
+# propia; si no se encuentra, el resto de la función de audio se aplica igual.
+def _xml_vals(path):
+    if not path.exists():
+        return {}
+    return dict(re.findall(r'<string name="([^"]+)"[^>]*>([^<]*)</string>', path.read_text(encoding="utf-8")))
 
 
-def norm(s):
-    return s.strip().lower()
+res_dir = src / "commonMain/resources/MR"
+vals_es, vals_en = _xml_vals(res_dir / "es/strings.xml"), _xml_vals(res_dir / "base/strings.xml")
+WANT = {  # clase de botón -> textos posibles (minúsculas)
+    "camera": {"cámara", "camara", "camera", "use camera"},
+    "image": {"imagen", "image", "gallery", "from gallery"},
+    "video": {"vídeo", "video"},
+    "file": {"archivo", "archivos", "file", "choose file", "files"},
+}
 
 
-file_key = None
-for k in dict.fromkeys(labels):
-    if norm(xml_vals.get(k, "")) in ("file", "choose file", "files"):
-        file_key = k
-        break
-if not file_key:
-    for k in dict.fromkeys(labels):
-        if "file" in k.lower():
-            file_key = k
-            break
-if not file_key:
-    die("no encuentro cuál botón del menú es el de Archivo", att_t[:5000])
-print(f"   [audio] botón Archivo = MR.strings.{file_key}")
+def _kind(key):
+    for v in (vals_es.get(key, ""), vals_en.get(key, "")):
+        for kind, opts in WANT.items():
+            if v.strip().lower() in opts:
+                return kind
+    return None
 
-# Solo se cambia el texto del botón Archivo (texto nuevo propio; no se toca la clave original)
-att_t, n_lbl = re.subn(r"\bMR\.strings\." + re.escape(file_key) + r"\b", "MR.strings.zetaria_file_audio_button", att_t)
-if not n_lbl:
-    die("no pude cambiar el texto del botón Archivo", att_t[:3000])
-texts[att_f] = att_t
-print(f"   [audio] botón Archivo renombrado a 'Archivo y audios' en {att_f.name} ({n_lbl} uso/s)")
+
+menu_hits = []
+for f in kt_files:
+    tt = rd(f)
+    kinds = {}
+    for k in set(re.findall(r"MR\.strings\.(\w+)", tt)):
+        kd = _kind(k)
+        if kd and kd not in kinds:
+            kinds[kd] = k
+    if "file" in kinds and len(kinds) >= 3:
+        menu_hits.append((f, kinds["file"], sorted(kinds)))
+print(f"   [audio] archivos del menú de adjuntos: {[(h[0].name, h[1]) for h in menu_hits]}")
+renamed = 0
+for f, fkey, _k in menu_hits:
+    tt = texts.get(f) or rd(f)
+    nt, n = re.subn(r"\bMR\.strings\." + re.escape(fkey) + r"\b", "MR.strings.zetaria_file_audio_button", tt)
+    if n:
+        texts[f] = nt
+        renamed += n
+        print(f"   [audio] botón Archivo renombrado a 'Archivo y audios' en {f.name} ({n} uso/s)")
+if not renamed:
+    cand = []
+    for f in kt_files:
+        tt = rd(f)
+        if "ChooseAttachment" in f.name or "gallery_image_button" in tt or "use_camera_button" in tt:
+            cand.append(f"{f.name}: {sorted(set(re.findall(r'MR[.]strings[.](\\w+)', tt)))[:12]}")
+    print("   AVISO: no encontré el menú de adjuntos; el botón Archivo conserva su nombre. Candidatos:")
+    for c_ in cand:
+        print("     ", c_)
 
 # ---------------------------------------------------------------------------
 # 3. Vista previa del redactor: ícono de audio
