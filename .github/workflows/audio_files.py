@@ -276,6 +276,10 @@ for f in kt_files:
             kinds[kd] = k
     if "file" in kinds and len(kinds) >= 3:
         menu_hits.append((f, kinds["file"], sorted(kinds)))
+# si hay un archivo cuyo nombre es el del menú, solo ese (evita tocar textos de otras pantallas)
+_named = [h for h in menu_hits if "ChooseAttachment" in h[0].name]
+if _named:
+    menu_hits = _named
 print(f"   [audio] archivos del menú de adjuntos: {[(h[0].name, h[1]) for h in menu_hits]}")
 renamed = 0
 for f, fkey, _k in menu_hits:
