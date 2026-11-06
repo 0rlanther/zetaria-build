@@ -228,112 +228,122 @@ texts[cif_f] = cif_t[:body_open] + hook + cif_t[body_open:]
 print(f"   [audio] CIFileView parcheado ({cif_f.name}): if ({cond})")
 
 # ---------------------------------------------------------------------------
-# 2. Menú de adjuntos: nueva opción Audio
+# 2. Menú de adjuntos: botón Audio (copia del botón Archivo) + selector filtrado
+#    No depende de nombres internos (enum, etc.): localiza el botón por su texto.
 # ---------------------------------------------------------------------------
-enum_f, enum_t, m = find_def(r"\benum\s+class\s+AttachmentOption\b", "AttachmentOption")
-eo = enum_t.find("{", m.end())
-ec = bracket_pairs(enum_t)[eo]
-ebody = enum_t[eo + 1:ec]
-if "(" in ebody or ";" in ebody:
-    die("AttachmentOption tiene constructor o miembros; no se puede ampliar automáticamente", enum_t[m.start():ec + 1])
-entries = [e.strip() for e in ebody.split(",") if e.strip()]
-if "Audio" in entries:
-    die("AttachmentOption ya tiene 'Audio'")
-if "File" not in entries:
-    die(f"AttachmentOption no tiene 'File' (tiene: {entries})")
-new_body = "\n" + ",\n".join("  " + e for e in entries + ["Audio"]) + "\n"
-enum_t = enum_t[:eo + 1] + new_body + enum_t[ec:]
+base_xml = src / "commonMain/resources/MR/base/strings.xml"
+xml_vals = dict(re.findall(r'<string name="([^"]+)"[^>]*>([^<]*)</string>', rd(base_xml)))
 
-# botón
-cands = [x.start() for x in re.finditer(r"AttachmentOption\.File\b", enum_t)]
-if not cands:
-    die("ChooseAttachmentView: no encuentro AttachmentOption.File en un botón", enum_t[:3000])
-pairs2 = bracket_pairs(enum_t)
-span = None
-for pos in cands:
-    for am in re.finditer(r"\bActionButton\s*\(", enum_t):
-        o = enum_t.find("(", am.start())
-        c = pairs2.get(o)
-        if c is None:
-            continue
-        end = c + 1
-        tr = re.match(r"\s*\{", enum_t[end:])
-        if tr:
-            end = pairs2[end + tr.end() - 1] + 1
-        if am.start() < pos < end:
-            span = (am.start(), end)
-            break
-    if span:
+att_files = [f for f in kt_files if "ChooseAttachment" in f.name]
+if not att_files:
+    att_files = [f for f in kt_files if "MR.strings.gallery_image_button" in rd(f) or "MR.strings.use_camera_button" in rd(f)]
+if not att_files:
+    die("no encuentro el archivo del menú de adjuntos (ChooseAttachmentView.kt)")
+att_f = att_files[0]
+att_t = rd(att_f)
+labels = re.findall(r"MR\.strings\.(\w+)", att_t)
+print(f"   [audio] menú de adjuntos: {att_f.name}; textos usados: {list(dict.fromkeys(labels))}")
+
+
+def norm(s):
+    return s.strip().lower()
+
+
+file_key = None
+for k in dict.fromkeys(labels):
+    if norm(xml_vals.get(k, "")) in ("file", "choose file", "files"):
+        file_key = k
         break
-if not span:
-    die("no encuentro un ActionButton(...) que use AttachmentOption.File", enum_t[:3500])
-s, e = span
-ls = line_start(enum_t, s)
-indent = enum_t[ls:s]
-if indent.strip():
-    die("el ActionButton de Archivo no empieza en su propia línea", enum_t[ls:e + 100])
-btn = enum_t[ls:e]
-dup = btn.replace("AttachmentOption.File", "AttachmentOption.Audio", 1)
+if not file_key:
+    for k in dict.fromkeys(labels):
+        if "file" in k.lower():
+            file_key = k
+            break
+if not file_key:
+    die("no encuentro cuál botón del menú es el de Archivo", att_t[:5000])
+print(f"   [audio] botón Archivo = MR.strings.{file_key}")
+
+pairs2 = bracket_pairs(att_t)
+pos = att_t.find(f"MR.strings.{file_key}")
+best = None
+for cm in re.finditer(r"\b[A-Z]\w*\s*\(", att_t):
+    o = att_t.find("(", cm.start())
+    c = pairs2.get(o)
+    if c is None or not (o < pos < c):
+        continue
+    end = c + 1
+    tr = re.match(r"\s*\{", att_t[end:])
+    if tr:
+        end = pairs2[end + tr.end() - 1] + 1
+    if best is None or (end - cm.start()) < (best[1] - best[0]):
+        best = (cm.start(), end, c)
+if not best or att_t[best[0]:best[1]].lstrip().startswith(("Row", "Column", "Box", "Surface")):
+    die("no pude aislar el botón de Archivo", att_t[:5000])
+s, e, paren_close = best
+ls = line_start(att_t, s)
+if att_t[ls:s].strip():
+    die("el botón de Archivo no empieza en su propia línea", att_t[ls:e + 100])
+btn = att_t[ls:e]
+rel_close = paren_close - ls
+flag = f"{PKG_ITEM}.zetariaPickAudio = true"
+# 1) inyectar la bandera al principio de la acción de clic (offsets sobre el texto original)
+trail = re.match(r"\s*\{", btn[rel_close + 1:])
+if trail:
+    ins = rel_close + 1 + trail.end()
+else:
+    mc = re.search(r"\b(?:onClick|click)\s*=\s*\{", btn)
+    if not mc:
+        die("no encuentro la acción de clic del botón de Archivo", btn)
+    ins = mc.end()
+dup = btn[:ins] + f"\n      {flag}\n      " + btn[ins:]
+# 2) cambiar texto e ícono
 dup, n1 = re.subn(r"MR\.strings\.\w+", "MR.strings.zetaria_audio_button", dup, count=1)
 dup, n2 = re.subn(r"MR\.images\.\w+", "MR.images.zet_audio_file", dup, count=1)
 if not (n1 and n2):
     die("el botón de Archivo no usa MR.strings / MR.images reconocibles", btn)
-nl = enum_t.find("\n", e)
-nl = len(enum_t) if nl < 0 else nl + 1
-enum_t = enum_t[:nl] + dup + "\n" + enum_t[nl:]
-# si los botones miden un 25 % del ancho, con 5 hay que bajar al 20 %
-if "0.25f" in enum_t:
-    enum_t = enum_t.replace("0.25f", "0.2f")
+nl = att_t.find("\n", e)
+nl = len(att_t) if nl < 0 else nl + 1
+att_t = att_t[:nl] + dup + "\n" + att_t[nl:]
+if "0.25f" in att_t:
+    att_t = att_t.replace("0.25f", "0.2f")
     print("   [audio] ancho de botones 25% -> 20% (ahora son 5)")
-texts[enum_f] = enum_t
-print(f"   [audio] botón Audio añadido en {enum_f.name}")
+texts[att_f] = att_t
+print(f"   [audio] botón Audio añadido en {att_f.name}")
 
-# ActionButton definido en otro archivo con 0.25f: solo avisar
 for f in kt_files:
-    if f == enum_f:
+    if f == att_f:
         continue
-    t = rd(f)
-    d = re.search(r"\bfun\s+ActionButton\s*\(", t)
-    if d and "0.25f" in t[d.start(): d.start() + 1500]:
+    tt = rd(f)
+    d = re.search(r"\bfun\s+ActionButton\s*\(", tt)
+    if d and "0.25f" in tt[d.start(): d.start() + 1500]:
         print(f"   AVISO: ActionButton en {f.name} usa 0.25f de ancho; con 5 botones puede quedar justo")
 
-# lanzador del selector (Android obligatorio; escritorio si existe)
-launch_done = []
+# selector de archivos (Android obligatorio): "*/*" -> audio/* si se pulsó Audio
+sel_done = []
 for f in kt_files:
-    t = rd(f) if f != enum_f else texts[f]
-    am = re.search(r"AttachmentOption\.File\s*->", t)
-    if not am:
+    p_ = str(f).replace("\\", "/")
+    if "androidMain" not in p_ and "desktopMain" not in p_:
         continue
-    pr = bracket_pairs(t)
-    i = am.end()
-    while i < len(t) and t[i] in " \t":
-        i += 1
-    if i < len(t) and t[i] == "{":
-        end = pr[i] + 1
-    else:
-        end = t.find("\n", i)
-        end = len(t) if end < 0 else end
-    ls = line_start(t, am.start())
-    branch = t[ls:end]
-    nb = branch.replace("AttachmentOption.File", "AttachmentOption.Audio", 1).replace('"*/*"', '"audio/*"')
-    ok = "audio/*" in nb
-    is_android = "androidMain" in str(f).replace("\\", "/")
-    if not ok:
-        if is_android:
-            die(f"en {f.name} la rama File no llama a launch(\"*/*\")", branch)
-        print(f"   AVISO: en {f.name} no pude copiar la rama File (escritorio); se omite")
+    tt = texts.get(f) or rd(f)
+    fm = re.search(r"\bfun\s+AttachmentSelection\s*\(", tt)
+    if not fm:
         continue
-    texts[f] = t[:ls] + nb + "\n" + t[ls:]
-    launch_done.append(f)
-    print(f"   [audio] selector de audio/* en {f.name}")
-if not any("androidMain" in str(f).replace("\\", "/") for f in launch_done):
-    die("no encuentro el 'when' de AttachmentOption.File en androidMain (selector de archivos)")
-
-# when exhaustivos que pudieran romperse con el nuevo valor
-for f in kt_files:
-    t = texts.get(f) or rd(f)
-    if "AttachmentOption." in t and f != enum_f and f not in launch_done:
-        print(f"   AVISO: {f.name} usa AttachmentOption; revisar si tiene un 'when' sin 'else'")
+    pr = bracket_pairs(tt)
+    o = tt.find("(", fm.start())
+    bo = tt.find("{", pr[o])
+    bc = pr[bo]
+    body = tt[bo:bc]
+    nb, n = re.subn(r'\.launch\(\s*"\*/\*"\s*\)', f".launch({PKG_ITEM}.zetariaFilePickerMime())", body)
+    if n == 0:
+        if "androidMain" in p_:
+            die(f"en {f.name} no encuentro .launch(\"*/*\") dentro de AttachmentSelection", body[:3500])
+        print(f"   AVISO: {f.name} (escritorio): no encontré launch(\"*/*\"); se omite")
+        continue
+    texts[f] = tt[:bo] + nb + tt[bc:]
+    sel_done.append(f)
+    print(f"   [audio] selector filtrable en {f.name} ({n} lanzamiento/s)")
+if not any("androidMain" in str(f).replace("\\", "/") for f in sel_done):
+    die("no encuentro AttachmentSelection en androidMain (selector de archivos)")
 
 # ---------------------------------------------------------------------------
 # 3. Vista previa del redactor: ícono de audio

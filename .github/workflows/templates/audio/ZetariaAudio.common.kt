@@ -25,3 +25,12 @@ expect fun zetariaAudioAvailable(file: CIFile?): Boolean
 
 @Composable
 expect fun ZetariaAudioFileView(file: CIFile, onLongClick: () -> Unit)
+
+// Se activa al pulsar el botón "Audio"; el selector de archivos lo consume una sola vez.
+var zetariaPickAudio: Boolean = false
+
+fun zetariaFilePickerMime(): String {
+  val m = if (zetariaPickAudio) "audio/*" else "*/*"
+  zetariaPickAudio = false
+  return m
+}
