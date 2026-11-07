@@ -37,6 +37,13 @@ jobs:
           echo "Usando: $SCRIPT"
           bash "$SCRIPT" src/apps/multiplatform
 
+      - name: Quitar banner de crowdfunding y su espacio
+        continue-on-error: true
+        run: |
+          SCRIPT=$(find overlay -name remove_banner_space.py | head -1)
+          echo "Usando: $SCRIPT"
+          python3 "$SCRIPT" src/apps/multiplatform
+
       - name: Audios en el chat (botón Audio + reproductor)
         # Si el código de SimpleX no coincide, el script no modifica nada y el build sigue sin audio.
         continue-on-error: true
