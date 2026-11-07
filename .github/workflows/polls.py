@@ -90,9 +90,14 @@ mm = re.findall(r"^( *)AttachmentSelection\(composeState, attachmentOption, .*$"
 if len(mm) != 1:
     die(f"AttachmentSelection(...) aparece {len(mm)} veces en ComposeView.kt (debía ser 1)")
 line = re.search(r"^( *)AttachmentSelection\(composeState, attachmentOption, .*$", t, re.M)
-edits[p] = (t[:line.end()] +
-            f"\n{line.group(1)}chat.simplex.common.views.chat.item.ZetariaPollHost(chatsCtx, chat, attachmentOption)" +
-            t[line.end():])
+# (no se puede usar el nombre completo del paquete: en ComposeView "chat" es una variable)
+t2 = t[:line.end()] + f"\n{line.group(1)}ZetariaPollHost(chatsCtx, chat, attachmentOption)" + t[line.end():]
+first_import = re.search(r"^import .*$", t2, re.M)
+if not first_import:
+    die("ComposeView.kt no tiene imports")
+if "import chat.simplex.common.views.chat.item.ZetariaPollHost" in t2:
+    die("ComposeView.kt ya importa ZetariaPollHost")
+edits[p] = (t2[:first_import.start()] + "import chat.simplex.common.views.chat.item.ZetariaPollHost\n" + t2[first_import.start():])
 print("   [encuestas] ZetariaPollHost añadido a ComposeView")
 
 # 4) la encuesta se dibuja como tarjeta dentro de la burbuja
